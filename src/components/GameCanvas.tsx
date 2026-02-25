@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import {
   CANVAS_W, CANVAS_H,
   createGameState, update, draw,
-  initLevel, checkPlayAgainClick,
+  initLevel,
   type GameState,
 } from '@/game/engine';
 
@@ -16,53 +16,49 @@ export default function GameCanvas({ onStateUpdate }: GameCanvasProps) {
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const [started, setStarted] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [results, setResults] = useState<{
+    timePlayed: number;
+    deathCount: number;
+    playerChoice: 'red' | 'blue' | null;
+  } | null>(null);
 
-  // Start game
   const startGame = useCallback(() => {
     const gs = createGameState();
     gsRef.current = gs;
     initLevel(gs, 1);
+    lastTimeRef.current = 0;
     setStarted(true);
+    setShowResults(false);
+    setResults(null);
   }, []);
 
-  // Input
-  useEffect(() => {
-    const gs = gsRef.current;
+  const playAgain = useCallback(() => {
+    startGame();
+  }, [startGame]);
 
+  // Input handling
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
         e.preventDefault();
       }
-      gs.keys[e.key] = true;
+      gsRef.current.keys[e.key] = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      gs.keys[e.key] = false;
+      gsRef.current.keys[e.key] = false;
     };
     const onMouseMove = (e: MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      gs.mouseX = ((e.clientX - rect.left) / rect.width) * CANVAS_W;
-      gs.mouseY = ((e.clientY - rect.top) / rect.height) * CANVAS_H;
-    };
-    const onClick = (e: MouseEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const cx = ((e.clientX - rect.left) / rect.width) * CANVAS_W;
-      const cy = ((e.clientY - rect.top) / rect.height) * CANVAS_H;
-
-      if (checkPlayAgainClick(gs, cx, cy)) {
-        const newGs = createGameState();
-        gsRef.current = newGs;
-        initLevel(newGs, 1);
-      }
+      gsRef.current.mouseX = ((e.clientX - rect.left) / rect.width) * CANVAS_W;
+      gsRef.current.mouseY = ((e.clientY - rect.top) / rect.height) * CANVAS_H;
     };
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('mousemove', onMouseMove);
-    canvasRef.current?.addEventListener('click', onClick);
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
@@ -88,72 +84,93 @@ export default function GameCanvas({ onStateUpdate }: GameCanvasProps) {
       draw(ctx, gs);
       onStateUpdate?.(gs);
 
+      // Check if results should show
+      if (gs.showResults && !showResults) {
+        setShowResults(true);
+        setResults({
+          timePlayed: gs.timePlayed,
+          deathCount: gs.deathCount,
+          playerChoice: gs.playerChoice,
+        });
+      }
+
       animRef.current = requestAnimationFrame(loop);
     };
 
     animRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animRef.current);
-  }, [started, onStateUpdate]);
-
-  // Draw start screen when not started
-  useEffect(() => {
-    if (started) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-
-    ctx.fillStyle = '#121212';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 36px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#00E5FF';
-    ctx.shadowColor = '#00E5FF';
-    ctx.shadowBlur = 30;
-    ctx.fillText('REALITY SHIFT', CANVAS_W / 2, 200);
-    ctx.shadowBlur = 0;
-
-    ctx.font = '14px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#FFEA00';
-    ctx.fillText('— TROLL EDITION —', CANVAS_W / 2, 240);
-
-    ctx.font = '16px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText('Do not trust the game.', CANVAS_W / 2, 310);
-
-    ctx.strokeStyle = '#00E5FF';
-    ctx.lineWidth = 2;
-    const bw = 240, bh = 50;
-    const bx = CANVAS_W / 2 - bw / 2, by = 380;
-    ctx.strokeRect(bx, by, bw, bh);
-    ctx.font = 'bold 18px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#00E5FF';
-    ctx.fillText('[ BEGIN ]', CANVAS_W / 2, by + bh / 2 + 6);
-  }, [started]);
-
-  // Click to start
-  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (started) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const cx = ((e.clientX - rect.left) / rect.width) * CANVAS_W;
-    const cy = ((e.clientY - rect.top) / rect.height) * CANVAS_H;
-    const bw = 240, bh = 50;
-    const bx = CANVAS_W / 2 - bw / 2, by = 380;
-    if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-      startGame();
-    }
-  }, [started, startGame]);
+  }, [started, onStateUpdate, showResults]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={CANVAS_W}
-      height={CANVAS_H}
-      onClick={handleCanvasClick}
-      className="w-full max-w-[800px] border border-border box-glow-cyan cursor-crosshair"
-      style={{ imageRendering: 'pixelated', aspectRatio: '800/600' }}
-    />
+    <div className="relative w-full max-w-[800px]" style={{ aspectRatio: '800/600' }}>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_W}
+        height={CANVAS_H}
+        className="w-full h-full border border-border box-glow-cyan cursor-crosshair"
+        style={{ imageRendering: 'pixelated' }}
+        tabIndex={0}
+      />
+
+      {/* Start Screen Overlay */}
+      {!started && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-cyber-darker/95 z-10">
+          <h2 className="font-display text-3xl md:text-4xl font-bold text-primary text-shadow-cyan tracking-widest mb-2">
+            REALITY SHIFT
+          </h2>
+          <p className="font-mono text-sm text-cyber-yellow mb-6">— TROLL EDITION —</p>
+          <p className="font-mono text-base text-foreground mb-10">Do not trust the game.</p>
+          <button
+            onClick={startGame}
+            className="font-mono text-lg font-bold text-primary border-2 border-primary px-12 py-3 hover:bg-primary/10 transition-colors tracking-wider cursor-pointer"
+          >
+            [ BEGIN ]
+          </button>
+        </div>
+      )}
+
+      {/* Results Screen Overlay */}
+      {showResults && results && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-cyber-darker/98 z-10 p-8">
+          <h2 className="font-display text-2xl md:text-3xl font-bold text-primary text-shadow-cyan tracking-widest mb-1">
+            REALITY SHIFT
+          </h2>
+          <p className="font-mono text-sm text-cyber-yellow mb-8">— FINAL REPORT —</p>
+
+          <p className="font-mono text-base text-foreground mb-3">
+            You played for <span className="text-primary font-bold">{results.timePlayed}</span> seconds.
+          </p>
+          <p className="font-mono text-base text-foreground mb-8">
+            Deaths/failures: <span className="text-primary font-bold">{results.deathCount}</span>
+          </p>
+
+          <div className="font-mono text-sm text-cyber-yellow text-center mb-8 max-w-md">
+            {results.playerChoice === 'red' ? (
+              <>
+                <p>You chose the Red Door to be rebellious.</p>
+                <p>It led to the exact same code as the Blue Door.</p>
+              </>
+            ) : results.playerChoice === 'blue' ? (
+              <>
+                <p>You chose the Blue Door to be safe.</p>
+                <p>It led to the exact same code as the Red Door.</p>
+              </>
+            ) : (
+              <p>You somehow avoided both doors. Impressive.</p>
+            )}
+          </div>
+
+          <p className="font-mono text-lg text-secondary text-shadow-green mb-2">Agency is an illusion.</p>
+          <p className="font-mono text-lg text-secondary text-shadow-green mb-10">Thanks for playing!</p>
+
+          <button
+            onClick={playAgain}
+            className="font-mono text-base font-bold text-primary border-2 border-primary px-10 py-3 hover:bg-primary/10 transition-colors tracking-wider cursor-pointer"
+          >
+            [ PLAY AGAIN ]
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
